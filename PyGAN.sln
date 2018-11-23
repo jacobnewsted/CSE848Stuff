@@ -1,0 +1,23 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.28307.106
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "PyGAN", "PyGAN\PyGAN.pyproj", "{31E9E1E3-BA4C-4E04-B6DD-5508674592EC}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{31E9E1E3-BA4C-4E04-B6DD-5508674592EC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{31E9E1E3-BA4C-4E04-B6DD-5508674592EC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {56015712-5452-4948-AE93-83748F8BF07B}
+	EndGlobalSection
+EndGlobal
