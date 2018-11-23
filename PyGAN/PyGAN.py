@@ -56,13 +56,36 @@ disc_step = tf.train.RMSPropOptimizer(learning_rate=0.001).minimize(disc_loss,va
 sess = tf.Session()
 tf.global_variables_initializer().run(session=sess)
 
-for i in range(10001):
+n_dsteps = 10
+n_gsteps = 10
+X_batch = []
+Z_batch = []
+for i in range(101):
     X_batch = sample_data()
     Z_batch = sample_noise(batch_size, 2)
-    _, dloss = sess.run([disc_step, disc_loss], feed_dict={X: X_batch, Z: Z_batch})
-    _, gloss = sess.run([gen_step, gen_loss], feed_dict={X: X_batch, Z: Z_batch})
+    for j in range(n_dsteps):
+        _, dloss = sess.run([disc_step, disc_loss], feed_dict={X: X_batch, Z: Z_batch})
+    rrep_dstep, grep_dstep = sess.run([r_rep, g_rep], feed_dict={X: X_batch, Z: Z_batch})
+    for j in range(n_gsteps):
+        _, gloss = sess.run([gen_step, gen_loss], feed_dict={X: X_batch, Z: Z_batch})
+    rrep_gstep, grep_gstep = sess.run([r_rep, g_rep], feed_dict={X: X_batch, Z: Z_batch})
 
-    if i%1000 == 0:
-        for j in range(len(X_batch)):
-            print(X_batch[j])
-            print(Z_batch[j])
+    print("Iterations: %d\t Discriminator loss: %.4f\t Generator loss: %.4f"%(i,dloss,gloss))
+    if i%10 == 0:
+        print("%d,%f,%f\n"%(i,dloss,gloss))
+
+result = sess.run(G_sample, feed_dict={Z: Z_batch})
+print("\nGenerated Data\n")
+for i in range(len(result)):
+    if i%16 == 0:
+        print("")
+    else:
+        print(int(round(result[i][1])), sep=" ", end="", flush=True)
+
+print("\nReal Data\n")
+for i in range(len(sample_data())):
+    if i%16 == 0:
+        print("")
+    else:
+        print(int(round(sample_data()[i][1])), sep=" ", end="", flush=True)
+print("")
