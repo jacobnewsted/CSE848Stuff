@@ -4,134 +4,65 @@ import random
 import cv2
 import os
 
-#from tensorflow.examples.tutorials.mnist import input_data
-#mnist = input_data.read_data_sets("MNIST_data/")
+def sample_data():
+    data = []
+    temp = np.genfromtxt('Map1.csv', delimiter=',')
+    for i in range(len(temp)):
+        for j in range(len(temp[0])):
+            data.append([i * len(temp[0]) + j, temp[i][j]])
+    return data
 
-#x_train = mnist.train.images[:55000,:]
-#x_train.shape
+def sample_noise(m,n):
+    return np.random.uniform(-1., 1., size=[m,n])
 
-def conv2d(x, W):
-    return tf.nn.conv2d(input=x, filter=W, strides=[1,1,1,1], padding='SAME')
+def generator(Z, hsize=[16,16], reuse=False):
+    with tf.variable_scope("GAN/Generator", reuse=reuse,dtype=tf.float16):
+        h1 = tf.layers.dense(Z, hsize[0], activation=tf.nn.leaky_relu)
+        h2 = tf.layers.dense(h1, hsize[1], activation=tf.nn.leaky_relu)
+        out = tf.layers.dense(h2, 2)
+    return out
 
-def avg_pool_2x2(x):
-    return tf.nn.avg_pool(x, ksize=[1,2,2,1], strides=[1,2,2,1], padding='SAME')
+def discriminator(X, hsize=[16,16], reuse=False):
+    with tf.variable_scope("GAN/Discriminator",reuse=reuse,dtype=tf.float16):
+        h1 = tf.layers.dense(X,hsize[0], activation=tf.nn.leaky_relu)
+        h2 = tf.layers.dense(h1, hsize[1], activation=tf.nn.leaky_relu)
+        h3 = tf.layers.dense(h2, 2)
+        out = tf.layers.dense(h3, 1)
+    return out,h3
 
-def discriminator(x_image, reuse=False):
-    with tf.variable_scope('discriminator') as scope:
-        if reuse:
-            tf.get_variable_scope().reuse_variables()
 
-        W_conv1 = tf.get_variable('d_wconv1', [5,5,1,8], initializer=tf.truncated_normal_initializer(stddev=0.02))
-        b_conv1 = tf.get_variable('d_bconv1', [8], initializer=tf.constant_initializer(0))
-        h_conv1 = tf.nn.relu(conv2d(x_image, W_conv1) + b_conv1)
-        h_pool1 = avg_pool_2x2(h_conv1)
+batch_size = 256
+# 2D data with no specific shape represented by int16's
+X = tf.placeholder(tf.float32,[None,2])
+Z = tf.placeholder(tf.float32,[None,2])
 
-        W_conv2 = tf.get_variable('d_wconv2', [5,5,8,16], initializer=tf.truncated_normal_initializer(stddev=0.02))
-        b_conv2 = tf.get_variable('d_bconv2', [16], initializer=tf.constant_initializer(0))
-        h_conv2 = tf.nn.relu(conv2d(h_pool1, W_conv2) + b_conv2)
-        h_pool2 = avg_pool_2x2(h_conv2)
-        
-        W_fc1 = tf.get_variable('d_wfc1', [4*4*16, 32], initializer=tf.truncated_normal_initializer(stddev=0.02))
-        b_fc1 = tf.get_variable('d_bfc1', [32], initializer=tf.constant_initializer(0))
-        h_pool2_flat = tf.reshape(h_pool2, [-1,4*4*16])
-        #h_pool2_flat = tf.reshape(h_pool2, [-1,7*7*16])
-        h_fc1 = tf.nn.relu(tf.matmul(h_pool2_flat, W_fc1) + b_fc1)
+# Generate noise
+G_sample = generator(Z)
+r_logits, r_rep = discriminator(X) # Generate probabilities that the sample is real
+f_logits, g_rep = discriminator(G_sample, reuse=True) # Generate probabilities the sample is false from noise
 
-        W_fc2 = tf.get_variable('d_wfc2', [32,1], initializer=tf.truncated_normal_initializer(stddev=0.02))
-        b_fc2 = tf.get_variable('d_bfc2', [1], initializer=tf.constant_initializer(0))
+# Yikes, we are calculating the total loss by summing the probability of it being real (mapped onto the tensor shape for the true logit only considering chances of it being real)
+# by the probability of it being false (mapped onto the tensor shape for the fake logit considering only chances that it is fake)
+disc_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=r_logits,labels=tf.ones_like(r_logits)) + tf.nn.sigmoid_cross_entropy_with_logits(logits=f_logits, labels=tf.zeros_like(f_logits)))
+gen_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits = f_logits, labels=tf.ones_like(f_logits)))
+# Getting our optimizer for back-propogation of error
+gen_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope="GAN/Generator")
+disc_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope="GAN/Discriminator")
 
-        y_conv = tf.matmul(h_fc1, W_fc2) + b_fc2
-    return y_conv
-
-def generator(z, batch_size, z_dim, reuse=False):
-    with tf.variable_scope('generator') as scope:
-        if reuse:
-            tf.get_variable_scope().reuse_variables()
-
-        g_dim = 64
-        c_dim = 1
-        s = 16
-        s2, s4, s8, s16 = int(s/2), int(s/4), int(s/8), int(s/16)
-
-        h0 = tf.reshape(z, [batch_size, s16+1, s16+1, 25])
-        h0 = tf.nn.relu(h0)
-
-        output1_shape = [batch_size, s8, s8, g_dim*4]
-        W_conv1 = tf.get_variable('g_wconv1', [5,5,output1_shape[-1], int(h0.get_shape()[-1])],
-                                  initializer=tf.truncated_normal_initializer(stddev=0.1))
-        b_conv1 = tf.get_variable('g_bconv1', [output1_shape[-1]], initializer=tf.constant_initializer(.1))
-        H_conv1 = tf.nn.conv2d_transpose(h0, W_conv1, output_shape=output1_shape,
-                                         strides=[1,2,2,1], padding='SAME')+b_conv1
-        H_conv1 = tf.contrib.layers.batch_norm(inputs=H_conv1, center=True, scale=True, is_training=True, scope="g_bn1")
-        H_conv1 = tf.nn.relu(H_conv1)
-
-        output2_shape = [batch_size, s4-1, s4-1, g_dim*2]
-        W_conv2 = tf.get_variable('g_wconv2',[5,5,output2_shape[-1], int(H_conv1.get_shape()[-1])],
-                                  initializer=tf.truncated_normal_initializer(stddev=0.1))
-        b_conv2 = tf.get_variable('g_bconv2', [output2_shape[-1]], initializer=tf.constant_initializer(0.1))
-        H_conv2 = tf.nn.conv2d_transpose(H_conv1, W_conv2, output_shape=output2_shape,
-                                         strides=[1,2,2,1], padding="SAME") + b_conv2
-        H_conv2 = tf.contrib.layers.batch_norm(inputs=H_conv2, center=True, scale=True, is_training=True, scope="g_bn2")
-        H_conv2 = tf.nn.relu(H_conv2)
-
-        output3_shape = [batch_size, s2 - 2, s2 - 2, g_dim*1]
-        W_conv3 = tf.get_variable('g_wconv3', [5,5,output3_shape[-1], int(H_conv2.get_shape()[-1])],
-                                  initializer=tf.truncated_normal_initializer(stddev=0.1))
-        b_conv3 = tf.get_variable('g_bconv3', [output3_shape[-1]], initializer=tf.constant_initializer(0.1))
-        H_conv3 = tf.nn.conv2d_transpose(H_conv2, W_conv3, output_shape=output3_shape,
-                                         strides=[1,2,2,1], padding='SAME') + b_conv3
-        H_conv3 = tf.contrib.layers.batch_norm(inputs=H_conv3, center=True, scale=True, is_training=True, scope="g_bn3")
-        H_conv3 = tf.nn.relu(H_conv3)
-
-        output4_shape = [batch_size, s, s, c_dim]
-        W_conv4 = tf.get_variable('g_wconv4', [5,5,output4_shape[-1],int(H_conv3.get_shape()[-1])],
-                                  initializer=tf.truncated_normal_initializer(stddev=0.1))
-        b_conv4 = tf.get_variable('g_bconv4', [output4_shape[-1]], initializer=tf.constant_initializer(0.1))
-        H_conv4 = tf.nn.conv2d_transpose(H_conv3, W_conv4, output_shape=output4_shape,
-                                         strides=[1,2,2,1], padding='VALID') + b_conv4
-        H_conv4 = tf.nn.tanh(H_conv4)
-
-    return H_conv4
-
-z_dimensions = 5
-
-batch_size = 1
+# Most implementations use Adam but the example I am going off of uses a rectified one, doesn't matter much for this though
+gen_step = tf.train.RMSPropOptimizer(learning_rate=0.001).minimize(gen_loss,var_list=gen_vars)
+disc_step = tf.train.RMSPropOptimizer(learning_rate=0.001).minimize(disc_loss,var_list=disc_vars)
 
 sess = tf.Session()
-x_placeholder = tf.placeholder("float", shape=[None,16,16,1])
-z_placeholder = tf.placeholder(tf.float32, [None, z_dimensions])
+tf.global_variables_initializer().run(session=sess)
 
-Dx = discriminator(x_placeholder)
-Gz = generator(z_placeholder, batch_size, z_dimensions)
-Dg = discriminator(Gz, reuse=True)
+for i in range(10001):
+    X_batch = sample_data()
+    Z_batch = sample_noise(batch_size, 2)
+    _, dloss = sess.run([disc_step, disc_loss], feed_dict={X: X_batch, Z: Z_batch})
+    _, gloss = sess.run([gen_step, gen_loss], feed_dict={X: X_batch, Z: Z_batch})
 
-g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=Dg, labels=tf.ones_like(Dg)))
-d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=Dx, labels=tf.ones_like(Dx)))
-d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=Dg, labels=tf.zeros_like(Dg)))
-d_loss = d_loss_real + d_loss_fake
-
-tvars = tf.trainable_variables()
-d_vars = [var for var in tvars if 'd_' in var.name]
-g_vars = [var for var in tvars if 'g_' in var.name]
-
-adam = tf.train.AdamOptimizer()
-trainerD = adam.minimize(d_loss, var_list=d_vars)
-trainerG = adam.minimize(g_loss, var_list=g_vars)
-
-sess.run(tf.global_variables_initializer())
-iterations = 3000
-for i in range(iterations):
-    z_batch = np.random.uniform(-1, 1, size=[batch_size, z_dimensions])
-    dir_path = os.path.dirname(os.path.realpath(__file__))
-    filename = dir_path + "/Map1.csv"
-    features = np.genfromtxt(filename, delimiter=',')
-    features = np.reshape(features, [batch_size,16,16,1])
-    _,dLoss = sess.run([trainerD, d_loss],feed_dict={z_placeholder:z_batch,x_placeholder:features})
-    _,gLoss = sess.run([trainerG, g_loss],feed_dict={z_placeholder:z_batch})
-
-sample_image = generator(z_placeholder, 1, z_dimensions, reuse=True)
-z_batch = np.random.uniform(-1, 1, size=[1, z_dimensions])
-temp = (sess.run(sample_image, feed_dict={z_placeholder: z_batch}))
-my_i = temp.squeeze()
-for i in range(len(my_i)):
-    print(my_i[i])
+    if i%1000 == 0:
+        for j in range(len(X_batch)):
+            print(X_batch[j])
+            print(Z_batch[j])
